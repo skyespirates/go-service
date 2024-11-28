@@ -1,7 +1,9 @@
 package controllers
 
 import (
+	"errors"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 	"net/http"
 	"rest-api/utils"
 	"strconv"
@@ -14,37 +16,30 @@ type Task struct {
 	IsCompleted bool   `json:"isCompleted"`
 }
 
-var tasks = []Task{
-	{Id: 1, Title: "Task 1", Description: "Description 1", IsCompleted: false},
-	{Id: 2, Title: "Task 2", Description: "Description 2", IsCompleted: true},
-	{Id: 3, Title: "Task 3", Description: "Description 3", IsCompleted: false},
-}
-
 func GetAllTasks(c *gin.Context) {
-	utils.JSONResponse(c, http.StatusOK, "success", tasks)
+	var task []utils.Task
+	utils.DB.Find(&task)
+	utils.JSONResponse(c, http.StatusOK, "success", task)
 }
 
 func GetTaskDetail(c *gin.Context) {
 	taskId := c.Param("id")
-	id, err := strconv.Atoi(taskId)
-	// Check if the id is not a number
-	if err != nil {
-		utils.JSONResponse(c, http.StatusBadRequest, "error", nil)
+
+	var task utils.Task
+	result := utils.DB.First(&task, taskId)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			utils.JSONResponse(c, http.StatusNotFound, "Task not found", nil)
+		} else {
+			utils.JSONResponse(c, http.StatusInternalServerError, "Error retrieving task", nil)
+		}
 		return
 	}
-
-	// Check if the id is out of range
-	if id < 0 || id >= len(tasks) {
-		utils.JSONResponse(c, http.StatusNotFound, "error", nil)
-		return
-	}
-
-	task := tasks[id]
 	utils.JSONResponse(c, http.StatusOK, "success", task)
 }
 
 func CreateTask(c *gin.Context) {
-	var newTask Task
+	var newTask utils.Task
 
 	// Bind the JSON request body to the newTask struct
 	if err := c.ShouldBindJSON(&newTask); err != nil {
@@ -52,11 +47,11 @@ func CreateTask(c *gin.Context) {
 		return
 	}
 
-	// Set the new task ID
-	newTask.Id = len(tasks) + 1
-
-	// Append the new task to the tasks slice
-	tasks = append(tasks, newTask)
+	// Save the new task to the database
+	if err := utils.DB.Create(&newTask).Error; err != nil {
+		utils.JSONResponse(c, http.StatusInternalServerError, "Error creating task", nil)
+		return
+	}
 
 	// Return a success response
 	utils.JSONResponse(c, http.StatusCreated, "Task created successfully", newTask)
@@ -65,51 +60,63 @@ func CreateTask(c *gin.Context) {
 func UpdateTask(c *gin.Context) {
 	taskId := c.Param("id")
 	id, err := strconv.Atoi(taskId)
-	// Check if the id is not a number
 	if err != nil {
 		utils.JSONResponse(c, http.StatusBadRequest, "Invalid task ID", nil)
 		return
 	}
 
-	// Check if the id is out of range
-	if id < 1 || id > len(tasks) {
-		utils.JSONResponse(c, http.StatusNotFound, "Task not found", nil)
-		return
-	}
-
-	var updatedTask Task
-	// Bind the JSON request body to the updatedTask struct
+	var updatedTask utils.Task
 	if err := c.ShouldBindJSON(&updatedTask); err != nil {
 		utils.JSONResponse(c, http.StatusBadRequest, "Invalid request body", nil)
 		return
 	}
 
-	// Update the task fields
-	tasks[id-1].Title = updatedTask.Title
-	tasks[id-1].Description = updatedTask.Description
-	tasks[id-1].IsCompleted = updatedTask.IsCompleted
+	var task utils.Task
+	result := utils.DB.First(&task, id)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			utils.JSONResponse(c, http.StatusNotFound, "Task not found", nil)
+		} else {
+			utils.JSONResponse(c, http.StatusInternalServerError, "Error retrieving task", nil)
+		}
+		return
+	}
 
-	// Return a success response
-	utils.JSONResponse(c, http.StatusOK, "Task updated successfully", tasks[id-1])
+	task.Title = updatedTask.Title
+	task.Description = updatedTask.Description
+	task.Completed = updatedTask.Completed
+
+	if err := utils.DB.Save(&task).Error; err != nil {
+		utils.JSONResponse(c, http.StatusInternalServerError, "Error updating task", nil)
+		return
+	}
+
+	utils.JSONResponse(c, http.StatusOK, "Task updated successfully", task)
 }
+
 func DeleteTask(c *gin.Context) {
 	taskId := c.Param("id")
 	id, err := strconv.Atoi(taskId)
-	// Check if the id is not a number
 	if err != nil {
 		utils.JSONResponse(c, http.StatusBadRequest, "Invalid task ID", nil)
 		return
 	}
 
-	// Check if the id is out of range
-	if id < 1 || id > len(tasks) {
-		utils.JSONResponse(c, http.StatusNotFound, "Task not found", nil)
+	var task utils.Task
+	result := utils.DB.First(&task, id)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			utils.JSONResponse(c, http.StatusNotFound, "Task not found", nil)
+		} else {
+			utils.JSONResponse(c, http.StatusInternalServerError, "Error retrieving task", nil)
+		}
 		return
 	}
 
-	// Remove the task from the slice
-	tasks = append(tasks[:id-1], tasks[id:]...)
+	if err := utils.DB.Delete(&task).Error; err != nil {
+		utils.JSONResponse(c, http.StatusInternalServerError, "Error deleting task", nil)
+		return
+	}
 
-	// Return a success response
 	utils.JSONResponse(c, http.StatusOK, "Task deleted successfully", nil)
 }

@@ -7,8 +7,12 @@ import (
 	"rest-api/utils"
 )
 
-func main() {
+func init() {
 	utils.InitLogger()
+	utils.InitDb()
+}
+
+func main() {
 	router := gin.Default()
 
 	// Add logger middleware
